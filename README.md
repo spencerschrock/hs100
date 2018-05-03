@@ -261,7 +261,7 @@ Edit send.<span></span>py to include the commands you wish to execute. Example c
 ### Usage
 The program is run with Python 2
 ```
-python decode.py <pcap file>
+python decode.py <pcap file> (An example capture is included)
 python send.py
 ```
 
