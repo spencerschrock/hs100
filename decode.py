@@ -1,6 +1,6 @@
 import os
 # Uncomment if on Mac OS and the OS is unable to find scapy.all
-os.sys.path.append('/usr/local/lib/python2.7/site-packages')
+# os.sys.path.append('/usr/local/lib/python2.7/site-packages')
 from scapy.all import *
 import sys
 import binascii

@@ -6,7 +6,7 @@ Particularly, my goal for this project was to use the device as a trojan horse t
 
 I was able to accomplish my primary goal, and obtained information which exceeded my initial expectations.
 
-# Device Setup
+## Device Setup
 
 Device setup is performed by the user with the Kasa smartphone app. The user is asked to create a TP-Link Cloud Account in order to control the smart plug from anywhere. If the user doesn't link a cloud account, the plug can only be controlled locally. Once the device is plugged in, it creates an open Wi-Fi network used for setup. Kasa then connects the user's smartphone to the plug's network and configures the device over Wi-Fi. 
 
@@ -14,13 +14,13 @@ I was able to capture this setup traffic using an Alfa AWUS036NH Wireless Adapte
 
 A port scan of the device showed 9999 as the only open port. 
 
-# Attempted Reverse Engineering of Kasa
+## Attempted Reverse Engineering of Kasa
 
 A copy of the latest Kasa APK was downloaded from   [APKMirror](https://www.apkmirror.com) and decompiled using [DEX2Jar](https://github.com/pxb1988/dex2jar). The resulting file was examined using [JD-GUI](https://github.com/java-decompiler/jd-gui) and [Luyten](https://github.com/deathmarine/Luyten). The goal was to isolate and analyze the section of the app that handled to device configuration in order to determine the encryption method.
 
 Naturally, the decompiled Java code was void of any of the original variable and function names. After spending a few days looking through functions and variables whose names were one character letters I had made next to no progress making sense of the application. In the interest of time, I switched my focus to the network protocol.
 
-# Reverse Engineering the Network Protocol
+## Reverse Engineering the Network Protocol
 
 After capturing device setup traffic multiple times, I started to notice identical packets across different pcaps. This led me to try a known plaintext attack by varying the device alias passed during setup. The user is asked to pick a name for the plug, with a default value of "My Smart Plug". I captured another pcap of device setup traffic with the alias of "My Smart Slug" to test my hypothesis. 
 
@@ -78,7 +78,7 @@ Given that the structure of the command appears to be JSON, I assumed there shou
 ```
 I was not able to find what the first four bytes 00:00:00:36 were used for in this message.
 
-# Decoding network traffic
+## Decoding network traffic
 
 With the decryption algorithm figured out, I was able to write a python script to decode the TCP packets. In order to avoid any ambiguity about mystery bytes at the beginning of the message, I decoded the string in reverse and added the beginning '{'.
 
@@ -100,7 +100,7 @@ def  decode(pkt):
  
 Utilizing the Scapy module, I was able to iterate through an entire packet capture and decode all of the smart plug's communication over TCP or UDP.
 
-# Capturing setup traffic with a Raspberry Pi Zero W
+## Capturing setup traffic with a Raspberry Pi Zero W
 
   ![Image of Sniffer](https://i.imgur.com/8R2PgRk.jpg=250x)
 
@@ -163,7 +163,7 @@ Note the following information:
 
 The (temporary) credentials to my TP-Link Cloud Account and my Wi-Fi Network are easily recovered from capture. 
 
-# Enumerating HS100 commands
+## Enumerating HS100 commands
 
  With the encryption algorithm known, I began capturing traffic related to functions available in the Kasa App. This process was painstaking because the plugs cannot be used on an open wifi network. I found this ironic, give that the device setup occurs over an open wifi network.
   
@@ -225,7 +225,7 @@ Delete all timers (the device can only store a single timer)
 ```
 {"count_down":{"delete_all_rules":{}}}
 ```
-# Controlling the smart plugs programmatically
+## Controlling the smart plugs programmatically
 
 With the list of commands, and the encryption algorithm, it's possible to control the device outside of Kasa. This could be done maliciously after connecting to the victim's network with the leaked credentials, or it could be used to expand scripting functionality of the device for owners.
 
@@ -243,6 +243,27 @@ def encode(msg):
 
 Commands can be sent over TCP or UDP. The benefit to sending over UDP is the broadcast address. It's possible to control all devices on the network using the broadcast address. If paired with the get_sysinfo command, this effectively enumerates all devices on the network.
 
+## Running the code
+
+### Prerequisites
+
+The only dependency used is the scapy module. The module can be installed with pip
+
+```
+pip install scapy
+```
+
+### Installing
+Clone or download the repository.
+
+Edit send.<span></span>py to include the commands you wish to execute. Example commands are provided inside send.<span></span>py.
+
+### Usage
+The program is run with Python 2
+```
+python decode.py <pcap file>
+python send.py
+```
 
 # Conclusion
 
