@@ -265,11 +265,30 @@ python decode.py <pcap file> (An example capture is included)
 python send.py
 ```
 
+## Attempting to leverage network access and device control
+
+### Physical device security
+
+Given the electrical nature of the device, one of my concerns was the ability to influence safe operation of the device and things plugged into the device. In my enumeration of the device commands, only the turn on and turn off commands seemed like they could affect these goals in any capacity. With a loop, I was able to stress test the plug by rapidly turning it on and off. There appears to be a small rate limit on the operation, however its less than a tenth of a second. Despite multi-hour stress testing, I was not able to cause the plug itself to stop functioning, although the testing did cause one light bulb to burn out. An additional impact I had not initially considered was the environmental impact of stress testing the device. The plug emits a small click when turned on or off, and any lamp plugged in starts strobing. Aside from being extremely annoying, these conditions pose an epilepsy risk due to the flashing light.
+ 
+
+If I possessed  a safer test environment than my apartment, I would have liked to expand on the testing performed. All of the stress tests were performed with either no appliance plugged into the device, or a small power draw appliance like a lamp. I was curious if having something more powerful, like a space heater, plugged into the device could create create a fire hazard. Additionally, I would have preferred to test the device for longer periods of time, but I was not comfortable leaving the device unsupervised. 
+
+Overall, there was minimal physical impact to the device itself, but a burnt out light bulb and an epilepsy risk are two mild consequences from being able to control the device.
+
+### Network Auto-Join
+
+I spent the next portion of my research investigating a mechanism to auto-join the victim network once credentials are sniffed. This would be beneficial because the sniffer could report back as soon as it had gathered its intel, and serve as a point of access into the network if it called back with a reverse shell. I partially succeeded in implementing this with a bash script that would use regex to find the WiFi credentials in my script's output. However, I found it difficult to configure the network via the bash script, possibly due to the fact the wireless adapter was still sniffing in monitor mode. Ultimately, I chose to abandon the approach. While it would have been a nice proof of concept, having the battery powered device join the network would not have added much functionality. Given the power draw on the device, and the battery pack capacity, the setup would last less than a day. Additionally, having the device join the network would produce evidence that the information leak occurred, turning an otherwise passive event into a noisy one. 
+
+Instead, a war-driving scenario is likely the answer. There is no risk of the device being discovered by the individual outside of their house, nor a need to collect the device at a later date. The reception and range with a large antenna would also greatly improve the feasibility of the attack.
+
 # Conclusion
 
 The device setup information is encrypted using an [autokey cipher](https://en.wikipedia.org/wiki/Autokey_cipher). This cipher was broken with a known plaintext attack, which allowed for all configuration information to be decoded.
   
 Included in this configuration information are the user's network and TP-Link Cloud credentials. This information can be easily captured with a portable Pi Zero W setup.
+
+Attempts to leverage these credentials to increase the impact of this insecurity were largely unsuccessful. Having network access does not put the smart plug at substantial physical risk.
 
 ## Authors
 
